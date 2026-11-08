@@ -24,6 +24,12 @@ _g = 0.5 + np.array([-1.0, 1.0]) / (2 * np.sqrt(3.0))
 GPTS = np.array([[x, y, z] for z in _g for y in _g for x in _g])
 
 
+def clip01(x):
+    """Clamp to [0, 1] with derivative 1 at the bounds (jnp.clip splits its gradient at a tie, which halves the
+    derivative on exactly binary voxels)."""
+    return jnp.where(x > 1.0, 1.0, jnp.where(x < 0.0, 0.0, x))
+
+
 def dN_ref():
     """Shape-function gradients of the unit Q1 element: [gauss, node, dim]."""
     d = np.zeros((8, 8, 3))
@@ -132,7 +138,7 @@ class LinearHomogenization:
         rho = jnp.asarray(rho)
         if self.plane and rho.ndim == 2:
             rho = rho[..., None]
-        return self.emin + (1.0 - self.emin) * jnp.clip(rho, 0.0, 1.0) ** self.p
+        return self.emin + (1.0 - self.emin) * clip01(rho) ** self.p
 
     def apply_K(self, s, u):
         return scatter(s[..., None] * (gather(u) @ self.Ke))

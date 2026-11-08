@@ -34,6 +34,9 @@ The finite-strain GPU solver `fs3d` and the GPU solver for inverse homogenizatio
 | `nlfiber/amortize.py` | conditional generator and the distillation gap |
 | `nlfiber/baselines/` | B1 multi-start, B2 deflation, B4 DPS guidance, B6 values-only SMC, B7 parametric, B8 random |
 | `nlfiber/runner.py` | work queue sharded over GPUs |
+| `nlfiber/backend_fs3d.py` | the finite-strain GPU solver `fs3d` of the companion repository as an evaluator (paths, moduli, third-order constants, adjoint gradients in the formats of `qoi` and `mech`) |
+| `scripts/width_pilot.py` | end-to-end fiber-width measurement (projection, compression paths, noise floor, H1/H1s) with either evaluator |
+| `scripts/sampler_pilot.py` | prior training, S1 against B5 and B8, S2 chains |
 | `tests/` | unit tests |
 
 ### Dependency
@@ -103,6 +106,8 @@ Run a work queue on both cards:
 python -m nlfiber.runner runs/queue --shard 0 --n-shards 2 --gpu 0 &
 python -m nlfiber.runner runs/queue --shard 1 --n-shards 2 --gpu 1 &
 ```
+
+With `NLFIBER_FS3D=<companion repo>/build/fs3d`, `backend_fs3d.FS3D().run_path(rho, "compression", 0.2, 0.01)` returns the same rows as `qoi.run_path` from the GPU solver (about 20–50 times faster than the FP64 evaluator at $32^3$), and `scripts/width_pilot.py --backend fs3d` uses it.
 
 ### Tests
 

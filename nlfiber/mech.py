@@ -7,7 +7,8 @@ exact plane strain) and extended with what the fiber study needs:
   * stiffness scale s = emin + (1 - emin) rho^p, the same as the linear model, so the small-strain limit
     of the cell is exactly its linear C^H (the fiber and the evaluator describe the same solid);
   * void interpolation of Wang, Lazarov, Sigmund & Jensen (2014): psi = psi_nl(F_g) - psi_lin(F_g) + psi_lin(F),
-    F_g = I + gamma (F - I), gamma(rho) a smooth step (void elements cannot invert);
+    F_g = I + gamma (F - I), gamma a smooth step of the stiffness density rho^p (void elements cannot invert),
+    the convention of the companion GPU solver;
   * mixed macroscopic control (free components of Fbar with zero conjugate stress) with a stored Gauss-point
     tangent, an FFT preconditioner (the homogeneous linear operator) and Eisenstat-Walker forcing;
   * adjoint gradients of any scalar of the equilibrium state with respect to rho;
@@ -26,6 +27,12 @@ from .linear import NODES, dN_ref, lame, VOIGT, unit_strain as unit_voigt
 
 DN = jnp.asarray(dN_ref())
 I3 = jnp.eye(3)
+
+
+def clip01(x):
+    """Clamp to [0, 1] with derivative 1 at the bounds (jnp.clip splits its gradient at a tie, which halves the
+    derivative on exactly binary voxels)."""
+    return jnp.where(x > 1.0, 1.0, jnp.where(x < 0.0, 0.0, x))
 
 
 def psi_linear(F, lam, mu):
@@ -96,13 +103,14 @@ class Cell:
         self._jit()
 
     def scale_of(self, rho):
-        return self.emin + (1.0 - self.emin) * jnp.clip(rho, 0.0, 1.0) ** self.p
+        return self.emin + (1.0 - self.emin) * clip01(rho) ** self.p
 
     def gamma_of(self, rho):
         if self.wls is None:
             return None
         b, r0 = self.wls
-        return (jnp.tanh(b * r0) + jnp.tanh(b * (rho - r0))) / (jnp.tanh(b * r0) + jnp.tanh(b * (1 - r0)))
+        v = clip01(rho) ** self.p
+        return (jnp.tanh(b * r0) + jnp.tanh(b * (v - r0))) / (jnp.tanh(b * r0) + jnp.tanh(b * (1 - r0)))
 
     def with_rho(self, rho):
         return Cell(rho, self.E, self.nu, self.material, self.wls, self.emin, self.p)

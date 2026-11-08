@@ -114,17 +114,19 @@ class DensityMap:
 
 
 def upsample_periodic(c, f):
-    """Periodic multilinear upsampling of a cell-centred field by an integer factor (keeps the symmetry)."""
+    """Periodic multilinear resampling of a cell-centred field by a factor f (integer or not, e.g. 1.5);
+    keeps the symmetry when the new side is even."""
     out = np.asarray(c, dtype=np.float64)
     for ax in range(out.ndim):
         n = out.shape[ax]
-        x = (np.arange(n * f) + 0.5) / f - 0.5
+        m = int(round(n * f))
+        x = (np.arange(m) + 0.5) * n / m - 0.5
         i0 = np.floor(x).astype(int)
         w = x - i0
         a = np.take(out, i0 % n, axis=ax)
         b = np.take(out, (i0 + 1) % n, axis=ax)
         shp = [1] * out.ndim
-        shp[ax] = n * f
+        shp[ax] = m
         w = w.reshape(shp)
         out = (1 - w) * a + w * b
     return out
