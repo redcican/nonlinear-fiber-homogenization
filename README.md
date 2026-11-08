@@ -6,7 +6,11 @@ This repository contains the code for sampling and programming the set of period
 * small-strain periodic homogenization on voxel grids (JAX), with exact sensitivities and an adjoint-differentiable corrector solve;
 * Gauss-Newton projection onto the fiber in a chosen metric (Euclidean, Gaussian-Tweedie in the DCT basis, learned Tweedie), sharpness continuation and binary polish against a re-solve at a finer grid;
 * a finite-strain periodic evaluator (JAX, FP64): neo-Hookean solid with void interpolation, mixed macroscopic control, load paths, adjoint gradients, stability criteria and third-order elastic constants;
-* fiber-width statistics, noise floors and the hypothesis decisions of the study.
+* fiber-width statistics, noise floors and the hypothesis decisions of the study;
+* a geometry prior (procedural symmetric cells, 3D U-Net, flow matching) and its deterministic generator;
+* exact samplers of the fiber: the projected flow S1 (Gauss-Newton in the Gaussian-Tweedie or learned Tweedie metric) and the constrained-manifold MCMC S2 in the generator's latent space (Zappa, Holmes-Cerfon & Goodman, with the co-area Gram factor);
+* programming on the fiber: null-space gradient flow with finite-strain adjoint losses and tilted sequential Monte Carlo; an amortized conditional generator;
+* the baselines B1–B8 and a file-lock work queue sharded over GPUs.
 
 The finite-strain GPU solver `fs3d` and the GPU solver for inverse homogenization of the companion repository [periodic-finite-strain-homogenization](https://github.com/redcican/periodic-finite-strain-homogenization) can serve as faster back ends.
 
@@ -24,6 +28,12 @@ The finite-strain GPU solver `fs3d` and the GPU solver for inverse homogenizatio
 | `nlfiber/mech.py` | finite-strain evaluator |
 | `nlfiber/qoi.py` | load paths L1–L4 and nonlinear quantities of interest |
 | `nlfiber/widths.py` | spreads, bootstrap intervals, noise floors, hypothesis decisions, distribution distances |
+| `nlfiber/prior/` | procedural data (`data.py`), U-Net (`unet.py`), flow-matching prior and generator (`flow.py`) |
+| `nlfiber/sampler/` | S1 projected flow (`s1.py`), latent fiber (`latent.py`), manifold MCMC (`zhg.py`), ABC arbiter (`abc.py`) |
+| `nlfiber/steer/` | null-space flow (`nullspace.py`), tilted SMC (`smc.py`), finite-strain losses with adjoints (`losses.py`) |
+| `nlfiber/amortize.py` | conditional generator and the distillation gap |
+| `nlfiber/baselines/` | B1 multi-start, B2 deflation, B4 DPS guidance, B6 values-only SMC, B7 parametric, B8 random |
+| `nlfiber/runner.py` | work queue sharded over GPUs |
 | `tests/` | unit tests |
 
 ### Dependency
@@ -65,6 +75,33 @@ from nlfiber import mech, qoi
 cell = mech.Cell(rho)                        # rho: (n, n, n) density in [0, 1]
 rows = qoi.run_path(cell, "compression", emax=0.2, de=0.01, stability=True)
 print(qoi.path_qois(rows, E0=qoi.young_x(C)))
+```
+
+Sample the fiber with a learned prior (S1), then correct the measure with the latent manifold MCMC (S2):
+
+```python
+import jax
+from nlfiber.prior import data, flow
+from nlfiber.sampler import s1, latent, zhg
+from nlfiber import metric, symmetry
+
+X, fam, vol = data.make_dataset(n_o=16, count=2000)        # procedural symmetric cells -> pre-densities
+prior = flow.FlowPrior(16, widths=(16, 32, 64))
+prior.fit(X, steps=20000, batch=16)
+spec = metric.spectrum_from_data(prior.to_model(X))        # Gaussian-Tweedie metric of the data
+
+phi, info = s1.s1_sample(prior, fib, target, prior.latent(jax.random.PRNGKey(0)), K=16, spectrum=spec)
+
+lat = latent.LatentFiber(prior, fib, target, beta=16.0, K=8)
+z, _ = lat.project(prior.latent(jax.random.PRNGKey(1)))
+chain, step = zhg.ZHG(lat.cj, sym=symmetry.sym_perm).run(z, 200, 0.1, adapt=100)
+```
+
+Run a work queue on both cards:
+
+```bash
+python -m nlfiber.runner runs/queue --shard 0 --n-shards 2 --gpu 0 &
+python -m nlfiber.runner runs/queue --shard 1 --n-shards 2 --gpu 1 &
 ```
 
 ### Tests

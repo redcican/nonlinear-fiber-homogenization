@@ -4,3 +4,5 @@ runs/
 data/
 *.npz
 *.npy
+runs_*.log
+runs_*.py

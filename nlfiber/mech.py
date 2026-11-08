@@ -485,16 +485,23 @@ def toec(cell, chi):
     return C, T3 - 3.0 * sym
 
 
+CUBIC_TOEC = {
+    "C111": [(0, 0, 0), (1, 1, 1), (2, 2, 2)],
+    "C112": [(0, 0, 1), (0, 0, 2), (1, 1, 0), (1, 1, 2), (2, 2, 0), (2, 2, 1)],
+    "C123": [(0, 1, 2)],
+    "C144": [(0, 3, 3), (1, 4, 4), (2, 5, 5)],
+    "C155": [(0, 4, 4), (0, 5, 5), (1, 3, 3), (1, 5, 5), (2, 3, 3), (2, 4, 4)],
+    "C456": [(3, 4, 5)],
+}
+
+
+def cubic_toec_jnp(T):
+    """Traceable version of cubic_toec (dict of scalars)."""
+    return {k: jnp.mean(jnp.stack([T[i] for i in v])) for k, v in CUBIC_TOEC.items()}
+
+
 def cubic_toec(T):
     """The six cubic third-order constants (C111, C112, C123, C144, C155, C456), averaged over equivalent entries
     (Voigt indices 1..6 = xx yy zz yz xz xy)."""
     T = np.asarray(T)
-    eq = {
-        "C111": [(0, 0, 0), (1, 1, 1), (2, 2, 2)],
-        "C112": [(0, 0, 1), (0, 0, 2), (1, 1, 0), (1, 1, 2), (2, 2, 0), (2, 2, 1)],
-        "C123": [(0, 1, 2)],
-        "C144": [(0, 3, 3), (1, 4, 4), (2, 5, 5)],
-        "C155": [(0, 4, 4), (0, 5, 5), (1, 3, 3), (1, 5, 5), (2, 3, 3), (2, 4, 4)],
-        "C456": [(3, 4, 5)],
-    }
-    return {k: float(np.mean([T[i] for i in v])) for k, v in eq.items()}
+    return {k: float(np.mean([T[i] for i in v])) for k, v in CUBIC_TOEC.items()}
