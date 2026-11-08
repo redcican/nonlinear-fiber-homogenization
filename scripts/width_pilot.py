@@ -163,14 +163,15 @@ def run(args):
                     for k in floor:
                         floor[k]["a"].append((a["qoi"].get(k, np.nan), q2.get(k, np.nan)))
                     say(f"  floor(a) t{t_id} s{a['seed']} {tag}: nu20 {q2.get('nu20', np.nan):+.3f} r20 {q2.get('r20', np.nan):.3f} eps_max {q2['eps_max']:.3f}")
-            # (b) 1.5x resolution on even targets
+            # (b) finer resolution on even targets: 1.5x (the G1 protocol); 2x with fs3d, which needs powers of two
             if t_id % 2 == 0:
                 fine = []
+                fac = 2.0 if BACKEND["name"] == "fs3d" else 1.5
                 for a in base:
-                    b15 = resample_binary(fib, a["phi"], 1.5) if args["eval"] == "binary" else resample_grey(fib, a["phi"], 1.5, betas[-1])
+                    b15 = resample_binary(fib, a["phi"], fac) if args["eval"] == "binary" else resample_grey(fib, a["phi"], fac, betas[-1])
                     q3, _ = evaluate(b15, emax, de, kick_seed=a["seed"])
                     fine.append(q3)
-                    say(f"  floor(b) t{t_id} s{a['seed']} 1.5x ({b15.shape[0]}^3): nu20 {q3.get('nu20', np.nan):+.3f} r20 {q3.get('r20', np.nan):.3f} eps_max {q3['eps_max']:.3f}")
+                    say(f"  floor(b) t{t_id} s{a['seed']} {fac}x ({b15.shape[0]}^3): nu20 {q3.get('nu20', np.nan):+.3f} r20 {q3.get('r20', np.nan):.3f} eps_max {q3['eps_max']:.3f}")
                 for k in floor:
                     floor[k]["b"] = [[a["qoi"].get(k, np.nan) for a in base], [q.get(k, np.nan) for q in fine]]
             # (c) tighter stiffness slack on two cells

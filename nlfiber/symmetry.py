@@ -83,10 +83,20 @@ def to_free(oct_):
     return oct_[tuple(idx.T)]
 
 
+_REP = {}
+
+
+def representative_index(n_o, d=3):
+    """For every octant index tuple, the position of its sorted tuple in the free vector (a gather map)."""
+    key = (n_o, d)
+    if key not in _REP:
+        idx = free_index(n_o, d)
+        pos = {tuple(t): k for k, t in enumerate(idx)}
+        grid = np.stack(np.meshgrid(*[np.arange(n_o)] * d, indexing="ij"), axis=-1).reshape(-1, d)
+        _REP[key] = np.array([pos[tuple(sorted(g))] for g in grid]).reshape((n_o,) * d)  # numpy: safe under jit
+    return _REP[key]
+
+
 def from_free(v, n_o, d=3):
-    """Vector of free entries -> symmetric octant."""
-    idx = free_index(n_o, d)
-    out = jnp.zeros((n_o,) * d, dtype=v.dtype)
-    for p in itertools.permutations(range(d)):
-        out = out.at[tuple(idx[:, list(p)].T)].set(v)
-    return out
+    """Vector of free entries -> symmetric octant (a gather, so its derivative is exact)."""
+    return v[representative_index(n_o, d)]

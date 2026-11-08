@@ -36,11 +36,15 @@ class _Path:
                 Fb = np.array(mix.unpack(z, jnp.asarray(Fb))[1])
                 Fb[self.axis, self.axis] = 1 + e
             w, F, log = mix.solve(Fb, z0=self.z.get(e, z))
-            if not log["converged"]:
+            for _ in range(3):
+                if log["converged"] or log.get("linesearch_failed"):
+                    break
                 w, F, log = mix.solve(Fb, z0=log["z"], g_ref=log["g0"])
+            # a state whose gradient fell by 1e-5 is accurate enough for the loss; only a stalled solve fails
+            ok = bool(log["converged"]) or log["gnorm"][-1] <= 1e-5 * max(log["g0"], 1e-300)
             z = log["z"]
             self.z[e] = z
-            out[e] = (mix, z, np.asarray(F), bool(log["converged"]))
+            out[e] = (mix, z, np.asarray(F), ok)
         return cell, out
 
 

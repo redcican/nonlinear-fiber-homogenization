@@ -21,52 +21,88 @@ def scales(target):
 
 
 def gn_direction(J, h, w, metric=euclid, lam=1e-10):
-    """Minimum-G-norm step that cancels the linearized scaled residual h."""
+    """Damped Gauss-Newton step in metric G: -G J^T (J G J^T + lam diag(J G J^T))^-1 h (lam -> 0: the minimum-
+    G-norm step that cancels the linearized scaled residual h)."""
     Jf = jnp.reshape(J, (J.shape[0], -1)) / jnp.asarray(w)[:, None]
     GJ = jax.vmap(metric)(J / jnp.asarray(w).reshape((-1,) + (1,) * (J.ndim - 1)))
     GJf = jnp.reshape(GJ, Jf.shape)
     A = Jf @ GJf.T
-    a = jnp.linalg.solve(A + lam * jnp.trace(A) / A.shape[0] * jnp.eye(A.shape[0]), jnp.asarray(h))
+    D = jnp.diag(jnp.diag(A)) + 1e-300 * jnp.eye(A.shape[0])
+    a = jnp.linalg.solve(A + lam * D, jnp.asarray(h))
     return -jnp.tensordot(a, GJ, axes=1)
 
 
-def gn_project(fiber, phi, target, beta, metric=euclid, tol=1e-4, maxit=60, move=0.5, max_move=2.0,
-               min_move=1e-4, verbose=False):
-    """Project phi onto c = target at sharpness beta. Gauss-Newton with a trust region on the largest change of
-    phi (`move`), merit ||h||_2: a step that lowers the merit is taken and the region grows by 1.5, otherwise
-    it shrinks by 2. Returns (phi, info)."""
+def gn_project(fiber, phi, target, beta, metric=euclid, tol=1e-4, maxit=100, lam=1e-3, max_step=0.5,
+               verbose=False):
+    """Project phi onto c = target at sharpness beta by Levenberg-Marquardt on the scaled residual h:
+    a step that lowers ||h||_2 is taken and the damping shrinks by 3, otherwise it grows by 4; the largest
+    change of phi per step is capped at max_step times the standard deviation of phi (the density map is
+    invariant under a rescaling of phi, so the cap is relative). Returns (phi, info)."""
     w = scales(target)
     tgt = np.asarray(target, dtype=np.float64)
     phi = jnp.asarray(phi)
+    cap = max_step * float(jnp.std(phi)) + 1e-12
     c, J = fiber.value_jac(phi, beta)
     h = (c - tgt) / w
     hist = [float(np.abs(h).max())]
     it = 0
     for it in range(maxit):
-        if np.abs(h).max() <= tol or move < min_move:
+        if np.abs(h).max() <= tol or lam > 1e8:
             break
-        step = gn_direction(J, h, w, metric)
+        step = gn_direction(J, h, w, metric, lam)
         smax = float(jnp.abs(step).max())
-        trial = phi + (step * (move / smax) if smax > move else step)
-        c1, J1 = fiber.value_jac(trial, beta)
+        if smax > cap:
+            step = step * (cap / smax)
+        c1, J1 = fiber.value_jac(phi + step, beta)
         h1 = (c1 - tgt) / w
         if np.linalg.norm(h1) < np.linalg.norm(h):
-            phi, c, J, h = trial, c1, J1, h1
-            move = min(max_move, 1.5 * move) if smax > move else move
+            phi, c, J, h = phi + step, c1, J1, h1
+            lam = max(lam / 3, 1e-12)
             hist.append(float(np.abs(h).max()))
             if verbose:
-                print(f"  gn it {it}: |h|inf {hist[-1]:.2e} (step {min(smax, move):.2e})")
+                print(f"  lm it {it}: |h|inf {hist[-1]:.2e} (step {min(smax, cap):.2e}, lam {lam:.1e})")
         else:
-            move *= 0.5
+            lam *= 4
     return phi, dict(c=c, J=J, res_inf=float(np.abs(h).max()), err=rel_error(c, tgt), iters=it, hist=hist,
                      converged=bool(np.abs(h).max() <= tol))
 
 
-def project(fiber, phi, target, betas=(2, 4, 8, 16), metric=euclid, tol=1e-4, maxit=60, verbose=False):
-    """Beta continuation: project at each sharpness in turn. Returns (phi, info of the last stage)."""
+def homotopy_targets(c0, target, max_ratio=2.0):
+    """Intermediate targets between c0 and target when the stiffness gap is large: geometric interpolation of
+    the invariants whose signs agree (linear otherwise), with at most a factor max_ratio per stage on the
+    dominant invariant. Returns the list of targets ending with `target`."""
+    c0, t = np.asarray(c0, float), np.asarray(target, float)
+    gap = max(abs(np.log(abs(t[0]) / max(abs(c0[0]), 1e-30))), 0.0)
+    n = int(np.ceil(gap / np.log(max_ratio)))
+    if n <= 1:
+        return [t]
+    out = []
+    for k in range(1, n + 1):
+        a = k / n
+        same = np.sign(c0) == np.sign(t)
+        geo = np.sign(t) * np.abs(c0) ** (1 - a) * np.abs(t) ** a
+        out.append(np.where(same & (np.abs(c0) > 0), geo, (1 - a) * c0 + a * t))
+    return out
+
+
+def project(fiber, phi, target, betas=(2, 4, 8, 16), metric=euclid, tol=1e-4, maxit=100, verbose=False,
+            homotopy=False):
+    """Beta continuation: project at each sharpness in turn. With homotopy=True a large stiffness gap is
+    closed through intermediate targets at the first sharpness. Returns (phi, info of the last stage)."""
     info = None
+    first = True
     for b in betas:
-        phi, info = gn_project(fiber, phi, target, b, metric, tol, maxit, verbose=verbose)
+        stages = [np.asarray(target, float)]
+        if first and homotopy:
+            c0 = fiber.value(phi, b)
+            stages = homotopy_targets(c0, target)
+        first = False
+        for k, tk in enumerate(stages):
+            last = k == len(stages) - 1
+            phi, info = gn_project(fiber, phi, tk, b, metric, tol if last else 10 * tol, maxit if last else maxit // 2,
+                                   verbose=verbose)
+            if verbose and not last:
+                print(f" beta {b} homotopy stage {k + 1}/{len(stages)}: err {info['err']:.2e}")
         info["beta"] = b
         if verbose:
             print(f" beta {b}: err {info['err']:.2e} iters {info['iters']}")
@@ -92,7 +128,7 @@ def polish_binary(fiber, phi, target, beta, up=2, metric=euclid, steps=6, damp=0
         if best <= tol_bin or k == steps:
             break
         ts = ts + damp * (tgt - chk["c"])
-        phi, _ = gn_project(fiber, phi, ts, beta, metric, tol)
+        phi, _ = gn_project(fiber, phi, ts, beta, metric, tol, maxit=40)
     best_chk = dict(best_chk)
     return best_phi, dict(binary=best_chk, err_bin=best, history=hist)
 

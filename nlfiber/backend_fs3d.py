@@ -79,8 +79,10 @@ class FS3D:
         return {k: float(np.mean([T[i] for i in v])) for k, v in CUBIC_TOEC.items()}
 
     # --- load paths ---------------------------------------------------------------------------
-    def run_path(self, rho, path="compression", emax=0.2, de=0.01, crit="1", stop_distortion=True, tag="path"):
-        """Rows in the format of qoi.run_path: e, P (3x3), F, nu (lateral), converged, newton, lam, seconds."""
+    def run_path(self, rho, path="compression", emax=0.2, de=0.01, crit="1", stop_distortion=True, tag="path",
+                 truncate_unstable=True):
+        """Rows in the format of qoi.run_path: e, P (3x3), F, nu (lateral), converged, newton, lam, seconds.
+        truncate_unstable: end the path at the first load point whose cell criterion is non-positive."""
         f, n = self._density_file(rho, tag)
         steps = int(round(emax / de))
         args = ["-mode", "path", "-in", str(f), "-path", PATHS[path], "-steps", str(steps), "-inc", str(de),
@@ -114,6 +116,15 @@ class FS3D:
                 rows.append(row)
         if rc == 2 and rows:  # the path stopped early: mark the end
             rows[-1]["failed_after"] = True
+        if truncate_unstable:
+            # fs3d follows the fundamental branch past an instability (MINRES on the indefinite tangent); the
+            # stable response there is the buckled branch, which the FP64 evaluator reaches with a kick. We keep
+            # the first load point with lambda_cell <= 0 (it fixes the onset by interpolation) and drop the rest.
+            for i, r in enumerate(rows):
+                if "lam" in r and r["lam"][0] <= 0:
+                    rows = rows[: i + 1]
+                    rows[-1]["unstable"] = True
+                    break
         return rows
 
     # --- adjoint gradient ---------------------------------------------------------------------

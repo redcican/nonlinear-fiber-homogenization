@@ -156,6 +156,13 @@ class TestTopology(unittest.TestCase):
 
 
 class TestProjection(unittest.TestCase):
+    def test_homotopy_targets(self):
+        st = P.homotopy_targets([0.01, 0.003, 0.002], [0.1, -0.01, 0.02], max_ratio=2.0)
+        self.assertEqual(len(st), 4)  # log(10) / log(2) -> 4 stages
+        np.testing.assert_allclose(st[-1], [0.1, -0.01, 0.02])
+        self.assertTrue(all(st[k][0] < st[k + 1][0] for k in range(3)))  # geometric in C11
+        self.assertEqual(len(P.homotopy_targets([0.1, 0.01, 0.02], [0.12, 0.01, 0.02])), 1)
+
     def test_reaches_target_from_random_starts(self):
         fib = Fb.Fiber(6, v=0.3, r=1.5)
         target = fib.value(schwarz_p_phi(6), 4.0)

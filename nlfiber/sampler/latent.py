@@ -45,9 +45,21 @@ class LatentFiber:
         self.calls += 1
         return np.asarray(h), J
 
-    def project(self, z, tol=1e-6, maxit=80, lam=1e-2):
+    def project(self, z, tol=1e-6, maxit=200, lam=1e-2, homotopy=False):
         """Levenberg-Marquardt in z (Euclidean latent metric) onto Z: a = (J J^T + lam I)^-1 h, dz = -J^T a;
-        lam grows by 10 on a rejected step and shrinks by 3 on an accepted one."""
+        lam grows by 10 on a rejected step and shrinks by 3 on an accepted one. A large stiffness gap is
+        closed through intermediate targets first (homotopy, as in project.project)."""
+        if homotopy:
+            from ..project import homotopy_targets
+            h0, _ = self.cj(z)
+            c0 = np.asarray(h0) * np.asarray(self.w) + np.asarray(self.target)
+            stages = homotopy_targets(c0, np.asarray(self.target))
+            if len(stages) > 1:
+                final = self.target
+                for tk in stages[:-1]:
+                    self.target = jnp.asarray(tk)
+                    z, _ = self.project(z, tol=10 * tol, maxit=maxit // 2, lam=lam, homotopy=False)
+                self.target = final
         h, J = self.cj(z)
         for _ in range(maxit):
             if np.abs(h).max() <= tol or lam > 1e8:

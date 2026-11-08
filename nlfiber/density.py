@@ -1,7 +1,10 @@
 """Pre-density phi -> physical density rho with exact volume.
 
-    u   = F mirror(sym_perm(phi))          periodic filter on the full cell
+    u   = F mirror(sym_perm(phi)) / std    periodic filter on the full cell, scaled to unit standard deviation
     rho = H_beta(u - eta),  H_beta(t) = sigmoid(beta t)
+
+The scaling makes the sharpness beta mean the same for pre-densities of any magnitude (random starts, signed
+distances, generator outputs); it is differentiable and commutes with the symmetrization.
     eta : mean(rho) = v exactly (bisection, then Newton)
 
 The derivative of eta follows from the volume condition: d eta = d^T du / 1^T d with d = H'_beta(u - eta),
@@ -79,8 +82,10 @@ class DensityMap:
         self.kfft = hat_kernel_fft(self.shape, r)
 
     def smooth(self, phi):
-        """Filtered full-cell field u = F mirror(sym_perm(phi))."""
-        return S.exact_symmetrize(filt(S.mirror(S.sym_perm(phi)), self.kfft))
+        """Filtered full-cell field u = F mirror(sym_perm(phi)), scaled to unit standard deviation."""
+        u = filt(S.mirror(S.sym_perm(phi)), self.kfft)
+        u = u / (jnp.std(u) + 1e-12)
+        return S.exact_symmetrize(u)
 
     def rho(self, phi, beta):
         return threshold(self.smooth(phi), self.v, beta)
