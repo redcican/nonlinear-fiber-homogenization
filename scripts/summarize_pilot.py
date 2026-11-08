@@ -22,7 +22,7 @@ def main(paths):
         a = R["args"]
         print(f"## {p}\n")
         print(f"cell {2 * a['n_o']}^3, v = {a['v']}, evaluator {a.get('backend', 'jax')}, {a['eval']} designs, "
-              f"compression to {a['emax']} in steps of {a['de']}\n")
+              f"{a.get('path', 'compression')} to {a['emax']} in steps of {a['de']}\n")
         print("| target | c* (C11, C12, C44)/E | n | IoU | ν(20%) q05–q95 | floor | r(20%) spread | floor | "
               "ε_max ratio | ε_cell ratio | H1 | H1s |")
         print("|---|---|---|---|---|---|---|---|---|---|---|---|")

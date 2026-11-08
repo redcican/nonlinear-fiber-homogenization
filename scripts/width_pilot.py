@@ -30,23 +30,27 @@ from nlfiber.density import upsample_periodic  # noqa: E402
 QOIS = ("nu20", "r20", "eps_max", "eps_kink", "eps_cell", "S20", "reached")
 
 
-BACKEND = {"name": "jax", "fs3d": None}
+BACKEND = {"name": "jax", "fs3d": None, "path": "compression"}
 
 
 def evaluate(cell_bin, emax, de, kick_seed=0, stability=True, verbose=False):
     """Compression path of a cell; returns the QoI dict and the per-step rows. With the fs3d back end the
     kick is the solver's own (deterministic), so kick re-runs change only the load step."""
     rho = jnp.asarray(cell_bin, jnp.float64)
-    C, _, _ = L.LinearHomogenization(rho.shape).C_full(rho)
-    E0 = Q.young_x(np.asarray(C))
+    if BACKEND["fs3d"] is not None:  # small-strain moduli from the GPU solver (the JAX solve of a 128^3 cell exceeds the card)
+        C, _ = BACKEND["fs3d"].moduli(np.asarray(rho), tag=f"moduli_{kick_seed}_{rho.shape[0]}")
+    else:
+        C, _, _ = L.LinearHomogenization(rho.shape).C_full(rho)
+        C = np.asarray(C)
+    E0 = Q.young_x(C)
     if BACKEND["fs3d"] is not None:
-        rows = BACKEND["fs3d"].run_path(np.asarray(rho), "compression", emax=emax, de=de, crit="1" if stability else "",
+        rows = BACKEND["fs3d"].run_path(np.asarray(rho), BACKEND["path"], emax=emax, de=de, crit="1" if stability else "",
                                         tag=f"path_{kick_seed}_{de:g}")
     else:
         cell = Me.Cell(rho)
-        rows = Q.run_path(cell, "compression", emax=emax, de=de, seed=kick_seed, stability=stability, verbose=verbose)
+        rows = Q.run_path(cell, BACKEND["path"], emax=emax, de=de, seed=kick_seed, stability=stability, verbose=verbose)
     q = Q.path_qois(rows, E0, at=(0.1, 0.2))
-    q["nu0"] = Q.nu0(np.asarray(C))
+    q["nu0"] = Q.nu0(C)
     q["E0"] = float(E0)
     q["newton_per_step"] = float(np.mean([r["newton"] for r in rows]))
     q["seconds"] = float(sum(r["seconds"] for r in rows))
@@ -78,6 +82,7 @@ def run(args):
     emax, de = args["emax"], args["de"]
     fib = Fb.Fiber(n_o, v=v, r=r)
     betas = (2, 4, 8, 16)
+    BACKEND["path"] = args.get("path", "compression")
     if args.get("backend") == "fs3d":
         from nlfiber.backend_fs3d import FS3D
         BACKEND["fs3d"] = FS3D(workdir=out / "fs3d")
@@ -91,7 +96,7 @@ def run(args):
         log.flush()
 
     # targets: the stiffness of reference designs (random starts whose binary cell spans the period)
-    targets, seed_t = [], 1000
+    targets, seed_t = [], 1000 + 100 * args.get("target_offset", 0)
     while len(targets) < args["targets"]:
         phi_t = Fb.random_start(n_o, seed=seed_t, kmax=2)
         seed_t += 1
@@ -103,7 +108,7 @@ def run(args):
             c_t = fib.value(phi_t, betas[-1])
         else:
             c_t = chk["c"]
-        k = len(targets)
+        k = len(targets) + args.get("target_offset", 0)
         targets.append(dict(id=k, c=[float(x) for x in c_t], vol=chk["vol"], seed=seed_t - 1))
         say(f"target {k}: c = {np.asarray(c_t)} ({args['eval']} reference, vol {chk['vol']:.3f})")
 
@@ -223,6 +228,7 @@ if __name__ == "__main__":
     ap.add_argument("--v", type=float, default=0.25)
     ap.add_argument("--r", type=float, default=1.5)
     ap.add_argument("--targets", type=int, default=2)
+    ap.add_argument("--target-offset", type=int, default=0, help="first target id (shards the targets over GPUs)")
     ap.add_argument("--starts", type=int, default=12)
     ap.add_argument("--accept", type=int, default=10)
     ap.add_argument("--n-min", type=int, default=10)
@@ -230,9 +236,10 @@ if __name__ == "__main__":
     ap.add_argument("--de", type=float, default=0.01)
     ap.add_argument("--eval", choices=("binary", "grey"), default="binary",
                     help="evaluate the binary cell (accepted at 0.5 %% C^H error) or the grey design (1e-3)")
+    ap.add_argument("--path", choices=("compression", "tension"), default="compression")
     ap.add_argument("--backend", choices=("jax", "fs3d"), default="jax",
                     help="finite-strain evaluator: the JAX FP64 solver or fs3d (NLFIBER_FS3D)")
     ap.add_argument("--out", default="runs/pilot32")
     a = ap.parse_args()
     run(dict(n_o=a.n_o, v=a.v, r=a.r, targets=a.targets, starts=a.starts, accept=a.accept, n_min=a.n_min,
-             emax=a.emax, de=a.de, out=a.out, eval=a.eval, backend=a.backend))
+             emax=a.emax, de=a.de, out=a.out, eval=a.eval, backend=a.backend, target_offset=a.target_offset, path=a.path))
