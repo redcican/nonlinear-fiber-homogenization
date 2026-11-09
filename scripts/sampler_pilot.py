@@ -49,6 +49,19 @@ def run(args):
     t0 = time.time()
     X, fam, vol = Dd.make_dataset(n_o, args["cells"], v_range=(0.15, 0.35), seed=0)
     say(f"data: {X.shape} families {np.bincount(fam).tolist()} ({time.time() - t0:.0f}s)")
+    held = None
+    if args.get("fiber_data"):
+        # cells on fibers (scripts/make_fiber_dataset.py); the last target of each file is held out as the test target
+        parts, held = [], []
+        for f in args["fiber_data"]:
+            d = np.load(f, allow_pickle=False)
+            last = d["target_id"].max()
+            keep = d["target_id"] != last
+            parts.append(np.asarray(d["phi"][keep], np.float32))
+            held.append(d["target"][~keep][0])
+        Xf = np.concatenate(parts)
+        X = np.concatenate([X, Xf])
+        say(f"fiber cells: {Xf.shape[0]} added ({len(held)} targets held out); data now {X.shape}")
     prior = Fl.FlowPrior(n_o, widths=(16, 32, 64), seed=0)
     t0 = time.time()
     hist = prior.fit(X, steps=args["steps"], batch=16, lr=3e-4, log_every=500)
@@ -57,9 +70,13 @@ def run(args):
     spec = M.spectrum_from_data(prior.to_model(jnp.asarray(X)))
 
     fib = Fb.Fiber(n_o, v=args["v"], r=1.5)
-    chk = fib.binary_check(Fb.random_start(n_o, seed=1000, kmax=2), up=1)
-    target = chk["c"]
-    say(f"target c = {target} vol {chk['vol']:.3f}")
+    if held:
+        target = np.asarray(held[0], np.float64)
+        say(f"target c = {target} (held-out fiber target)")
+    else:
+        chk = fib.binary_check(Fb.random_start(n_o, seed=1000, kmax=2), up=1)
+        target = chk["c"]
+        say(f"target c = {target} vol {chk['vol']:.3f}")
 
     results = {}
     for name, metric in (("S1", "gaussian"), ("B5", "euclid")):
@@ -120,6 +137,7 @@ if __name__ == "__main__":
     ap.add_argument("--abc", type=int, default=200)
     ap.add_argument("--chains", type=int, default=3)
     ap.add_argument("--mcmc", type=int, default=40)
+    ap.add_argument("--fiber-data", nargs="*", default=None, help="fiber_<n_o>.npz files of make_fiber_dataset.py")
     ap.add_argument("--out", default="runs/sampler16")
     a = ap.parse_args()
     run(vars(a))
