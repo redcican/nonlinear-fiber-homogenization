@@ -80,15 +80,20 @@ class FS3D:
 
     # --- load paths ---------------------------------------------------------------------------
     def run_path(self, rho, path="compression", emax=0.2, de=0.01, crit="1", stop_distortion=True, tag="path",
-                 truncate_unstable=True):
+                 truncate_unstable=True, branch=False):
         """Rows in the format of qoi.run_path: e, P (3x3), F, nu (lateral), converged, newton, lam, seconds.
-        truncate_unstable: end the path at the first load point whose cell criterion is non-positive."""
+        truncate_unstable: end the path at the first load point whose cell criterion is non-positive.
+        branch: let fs3d switch to the stable branch at a loss of stability (fs3d -branch); the rows then carry
+        'branch' (switches so far) and are not truncated."""
         f, n = self._density_file(rho, tag)
         steps = int(round(emax / de))
         args = ["-mode", "path", "-in", str(f), "-path", PATHS[path], "-steps", str(steps), "-inc", str(de),
                 "-crit", crit, "-prec", self.prec, "-newton_tol", str(self.newton_tol)]
         if not stop_distortion:
             args.append("-nostop_distortion")
+        if branch:
+            args.append("-branch")
+            truncate_unstable = False
         out, rc = self._run(args, tag)
         rows = []
         csvf = out / f"path_{PATHS[path]}.csv"
@@ -113,6 +118,8 @@ class FS3D:
                 if np.isfinite(g("ellipticity")):
                     row["rank_one"] = g("ellipticity")
                 row["void_inverted"] = g("void_distorted")
+                if "branch" in r:
+                    row["branch"] = g("branch")
                 rows.append(row)
         if rc == 2 and rows:  # the path stopped early: mark the end
             rows[-1]["failed_after"] = True
