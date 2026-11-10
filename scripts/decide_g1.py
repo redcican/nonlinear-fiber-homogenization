@@ -16,8 +16,9 @@ from nlfiber import widths as W  # noqa: E402
 
 def main(runs):
     decisions = []
-    print("| target | n | onset ε_cell q10–q90 | ratio | ln floor | pass (≥1.5, ≥3 floor) | stable ν(20%) spread | r(20%) spread | tension ν spread | r spread |")
-    print("|---|---|---|---|---|---|---|---|---|---|")
+    print("| target | n | onset ε_cell q10–q90 | ratio | ln floor | pass (≥1.5, ≥3 floor) | stable ν(20%) spread | r(20%) spread | "
+          "stable ν(10%) | r(10%) | median contact-free range | tension ν(20%) spread | r(20%) spread |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for run in runs:
         run = Path(run)
         f = run / "results.json"
@@ -38,16 +39,24 @@ def main(runs):
         for tag, key in (("stable", "qoi_compression_branch.json"), ("tension", "qoi_tension.json")):
             g = run / key
             if g.exists():
-                sp = json.load(open(g))["spreads"]
-                extra[tag] = (sp["nu20"]["spread"], sp["r20"]["spread"], sp["nu20"]["n"])
+                J = json.load(open(g))
+                sp = J["spreads"]
+                cells = J["cells"].values()
+                nu10 = W.spread([c.get("nu10", np.nan) for c in cells])
+                r10 = W.spread([c.get("r10", np.nan) for c in cells])
+                reached = [c.get("reached", np.nan) for c in cells]
+                extra[tag] = (sp["nu20"]["spread"], sp["r20"]["spread"], sp["nu20"]["n"], nu10, r10,
+                              float(np.nanmedian(reached)))
         q = lambda x: f"{x:.3f}" if x == x else "–"  # noqa: E731
-        st, te = extra.get("stable", (np.nan, np.nan, 0)), extra.get("tension", (np.nan, np.nan, 0))
+        st = extra.get("stable", (np.nan, np.nan, 0, np.nan, np.nan, np.nan))
+        te = extra.get("tension", (np.nan, np.nan, 0, np.nan, np.nan, np.nan))
         row["nu_stable"], row["r_stable"] = st[0], st[1]
         row["H1"] = bool(row["evaluable"] and (passed or (st[0] == st[0] and st[0] >= 0.1)))
         row["H1s"] = bool(row["evaluable"] and st[1] == st[1] and st[1] >= 0.05)
         decisions.append(row)
         print(f"| {row['target']} | {n} | {q(np.quantile(ok, 0.1) if ok.size else np.nan)}–{q(np.quantile(ok, 0.9) if ok.size else np.nan)} | "
-              f"{q(ratio)} | {q(lnfloor)} | {'pass' if passed else 'fail'} | {q(st[0])} (n {st[2]}) | {q(st[1])} | {q(te[0])} (n {te[2]}) | {q(te[1])} |")
+              f"{q(ratio)} | {q(lnfloor)} | {'pass' if passed else 'fail'} | {q(st[0])} (n {st[2]}) | {q(st[1])} | "
+              f"{q(st[3])} | {q(st[4])} | {q(st[5])} | {q(te[0])} (n {te[2]}) | {q(te[1])} |")
     print()
     print("H1 quantifier:", W.quantifier(decisions, "H1"), " H1s:", W.quantifier(decisions, "H1s"))
 
