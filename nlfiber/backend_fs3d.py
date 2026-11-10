@@ -80,11 +80,11 @@ class FS3D:
 
     # --- load paths ---------------------------------------------------------------------------
     def run_path(self, rho, path="compression", emax=0.2, de=0.01, crit="1", stop_distortion=True, tag="path",
-                 truncate_unstable=True, branch=False):
+                 truncate_unstable=True, branch=False, branch_kick=None):
         """Rows in the format of qoi.run_path: e, P (3x3), F, nu (lateral), converged, newton, lam, seconds.
         truncate_unstable: end the path at the first load point whose cell criterion is non-positive.
         branch: let fs3d switch to the stable branch at a loss of stability (fs3d -branch); the rows then carry
-        'branch' (switches so far) and are not truncated."""
+        'branch' (switches so far) and are not truncated. branch_kick: first kick amplitude (fs3d default 0.01)."""
         f, n = self._density_file(rho, tag)
         steps = int(round(emax / de))
         args = ["-mode", "path", "-in", str(f), "-path", PATHS[path], "-steps", str(steps), "-inc", str(de),
@@ -93,6 +93,8 @@ class FS3D:
             args.append("-nostop_distortion")
         if branch:
             args.append("-branch")
+            if branch_kick is not None:
+                args += ["-branch_kick", str(branch_kick)]
             truncate_unstable = False
         out, rc = self._run(args, tag)
         rows = []

@@ -1,6 +1,8 @@
 """G1 decisions under the compression protocol of 9 Nov 2026, from the width-pilot results and the cell
 re-evaluations: eps_cr = first loss of cell stability (fs3d, fundamental branch); nu(20%) and r(20%) on the
-stable branch (qoi_compression_branch.json) and in tension (qoi_tension.json) when present.
+stable branch (qoi_compression_branch.json) and in tension (qoi_tension.json) when present. The floors of the
+stable-branch nu(20%) and r(20%) come from floor_branch.json (scripts/branch_floor.py); targets without the 2x
+check use the largest (b) of the targets with it, as frozen on 6 Nov.
 
     python -I scripts/decide_g1.py runs/g1/t*/
 """
@@ -14,11 +16,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nlfiber import widths as W  # noqa: E402
 
 
+def branch_floors(runs):
+    fl = {}
+    for run in runs:
+        g = Path(run) / "floor_branch.json"
+        if g.exists():
+            J = json.load(open(g))
+            fl[J["target"]] = J["floor"]
+    bmax = {k: max([v[k]["b"] for v in fl.values() if np.isfinite(v[k].get("b", np.nan))], default=np.nan)
+            for k in ("nu20", "r20")}
+    out = {}
+    for t, v in fl.items():
+        out[t] = {k: W.target_floor(v[k]["a"], v[k]["b"] if np.isfinite(v[k]["b"]) else bmax[k], v[k]["c"])
+                  for k in ("nu20", "r20")}
+    return out
+
+
 def main(runs):
     decisions = []
+    floors = branch_floors(runs)
     print("| target | n | onset ε_cell q10–q90 | ratio | ln floor | pass (≥1.5, ≥3 floor) | stable ν(20%) spread | r(20%) spread | "
-          "stable ν(10%) | r(10%) | median contact-free range | tension ν(20%) spread | r(20%) spread |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+          "floor ν | floor r | stable ν(10%) | r(10%) | median contact-free range | tension ν(20%) spread | r(20%) spread |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for run in runs:
         run = Path(run)
         f = run / "results.json"
@@ -51,13 +70,21 @@ def main(runs):
         st = extra.get("stable", (np.nan, np.nan, 0, np.nan, np.nan, np.nan))
         te = extra.get("tension", (np.nan, np.nan, 0, np.nan, np.nan, np.nan))
         row["nu_stable"], row["r_stable"] = st[0], st[1]
-        row["H1"] = bool(row["evaluable"] and (passed or (st[0] == st[0] and st[0] >= 0.1)))
-        row["H1s"] = bool(row["evaluable"] and st[1] == st[1] and st[1] >= 0.05)
+        fb = floors.get(row["target"], dict(nu20=np.nan, r20=np.nan))
+        row["floor_nu"], row["floor_r"] = fb["nu20"], fb["r20"]
+        # a spread counts only with its floor measured: >= 0.1 (nu) or 0.05 (r) and >= 3x the floor
+        nu_pass = bool(st[0] == st[0] and fb["nu20"] == fb["nu20"] and st[0] >= 0.1 and st[0] >= 3 * fb["nu20"])
+        r_pass = bool(st[1] == st[1] and fb["r20"] == fb["r20"] and st[1] >= 0.05 and st[1] >= 3 * fb["r20"])
+        row["H1"] = bool(row["evaluable"] and (passed or nu_pass))
+        row["H1s"] = bool(row["evaluable"] and r_pass)
         decisions.append(row)
         print(f"| {row['target']} | {n} | {q(np.quantile(ok, 0.1) if ok.size else np.nan)}–{q(np.quantile(ok, 0.9) if ok.size else np.nan)} | "
-              f"{q(ratio)} | {q(lnfloor)} | {'pass' if passed else 'fail'} | {q(st[0])} (n {st[2]}) | {q(st[1])} | "
-              f"{q(st[3])} | {q(st[4])} | {q(st[5])} | {q(te[0])} (n {te[2]}) | {q(te[1])} |")
+              f"{q(ratio)} | {q(lnfloor)} | {'pass' if passed else 'fail'} | {q(st[0])} (n {st[2]}) | {q(st[1])}"
+              f"{' ✓' if r_pass else ''} | "
+              f"{q(fb['nu20'])} | {q(fb['r20'])} | {q(st[3])} | {q(st[4])} | {q(st[5])} | {q(te[0])} (n {te[2]}) | {q(te[1])} |")
     print()
+    pooled = {k: W.target_floor(*[f[k] for f in floors.values()]) for k in ("nu20", "r20")} if floors else {}
+    print("pooled stable-branch floors:", pooled)
     print("H1 quantifier:", W.quantifier(decisions, "H1"), " H1s:", W.quantifier(decisions, "H1s"))
 
 
