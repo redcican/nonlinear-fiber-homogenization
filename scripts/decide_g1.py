@@ -23,9 +23,12 @@ def branch_floors(runs):
         if g.exists():
             J = json.load(open(g))
             fl[J["target"]] = J["floor"]
-            if len(J["base"]) < 2:  # (b) compares pairs: not measured with one base cell
-                for k in ("nu20", "r20"):
-                    fl[J["target"]][k]["b"] = np.nan
+            # (b) recomputed from the logged 2x runs: a pairwise difference needs two cells with finite values
+            qb = json.load(open(Path(run) / "qoi_compression_branch.json"))["cells"]
+            fine = [x for x in J["runs"] if x["kind"] == "2x"]
+            for k in ("nu20", "r20"):
+                coarse = [next(q for kk, q in qb.items() if kk.endswith(f"/cell{x['seed']}")).get(k, np.nan) for x in fine]
+                fl[J["target"]][k]["b"] = W.difference_floor(coarse, [x[k] for x in fine]) if fine else np.nan
     bmax = {k: max([v[k]["b"] for v in fl.values() if np.isfinite(v[k].get("b", np.nan))], default=np.nan)
             for k in ("nu20", "r20")}
     out = {}
