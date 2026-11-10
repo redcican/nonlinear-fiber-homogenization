@@ -23,6 +23,9 @@ def branch_floors(runs):
         if g.exists():
             J = json.load(open(g))
             fl[J["target"]] = J["floor"]
+            if len(J["base"]) < 2:  # (b) compares pairs: not measured with one base cell
+                for k in ("nu20", "r20"):
+                    fl[J["target"]][k]["b"] = np.nan
     bmax = {k: max([v[k]["b"] for v in fl.values() if np.isfinite(v[k].get("b", np.nan))], default=np.nan)
             for k in ("nu20", "r20")}
     out = {}
