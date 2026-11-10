@@ -53,11 +53,11 @@ def difference_floor(coarse, fine):
     """(b): largest change of a pairwise difference, max_ij |(q_i - q_j)_fine - (q_i - q_j)_coarse|.
     A shift shared by all designs does not count."""
     c, f = np.asarray(coarse, float), np.asarray(fine, float)
-    out = 0.0
+    out = np.nan  # no finite pair: the component is not measured
     for i, j in itertools.combinations(range(c.size), 2):
         v = abs((f[i] - f[j]) - (c[i] - c[j]))
         if np.isfinite(v):
-            out = max(out, v)
+            out = v if not np.isfinite(out) else max(out, v)
     return float(out)
 
 

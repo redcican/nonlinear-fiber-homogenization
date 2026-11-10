@@ -35,6 +35,14 @@ def branch_floors(runs):
 def main(runs):
     decisions = []
     floors = branch_floors(runs)
+    # targets without the 2x check take the largest (b) of the targets with it (frozen 6 Nov)
+    def eps_floor(r):
+        r = Path(r)
+        if (r / "floor_onset.json").exists():
+            return json.load(open(r / "floor_onset.json"))["floor"]["eps_cell"]
+        return json.load(open(r / "results.json"))["results"][0]["floor"]["eps_cell"]
+    b_eps = [eps_floor(r).get("b") for r in runs if (Path(r) / "results.json").exists()]
+    b_eps_max = max([b for b in b_eps if b is not None and np.isfinite(b)], default=np.nan)
     print("| target | n | onset ε_cell q10–q90 | ratio | ln floor | pass (≥1.5, ≥3 floor) | stable ν(20%) spread | r(20%) spread | "
           "floor ν | floor r | stable ν(10%) | r(10%) | median contact-free range | tension ν(20%) spread | r(20%) spread |")
     print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
@@ -48,7 +56,11 @@ def main(runs):
         n = len(eps)
         ok = eps[np.isfinite(eps)]
         ratio = W.ratio(ok) if ok.size >= 5 else np.nan
-        fl = r["floor"]["eps_cell"]
+        fl = dict(r["floor"]["eps_cell"])
+        if (run / "floor_onset.json").exists():  # first four accepted cells had < 2 onsets: floor on cells with one
+            fl = dict(json.load(open(run / "floor_onset.json"))["floor"]["eps_cell"])
+        if fl.get("b") is None or not np.isfinite(fl["b"]):
+            fl["b"] = b_eps_max
         comps = [v for v in (fl.get("a"), fl.get("b"), fl.get("c")) if v is not None and np.isfinite(v)]
         base = np.nanmedian(ok) if ok.size else np.nan
         lnfloor = max(comps) / base if comps and base else np.nan  # relative change of the onset

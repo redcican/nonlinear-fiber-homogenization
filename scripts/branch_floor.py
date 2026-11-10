@@ -8,6 +8,10 @@ Base cells: the first four accepted cells (by seed) whose stable branch reaches 
       differences; on even targets only, the others use the largest (b) of those (scripts/decide_g1.py);
   (c) stiffness slack: two base cells polished to 0.05 % binary C^H error and re-run.
 Writes <run>/floor_branch.json.
+
+With --onset the same components are measured for the onset eps_cell on the fundamental branch, on the first
+four accepted cells that have an onset (for targets whose first four accepted cells have fewer than two onsets);
+there is no kick on the fundamental branch, so (a) is the half-step re-run. Writes <run>/floor_onset.json.
 """
 import argparse
 import json
@@ -27,10 +31,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from width_pilot import resample_binary  # noqa: E402
 
 KEYS = ("nu20", "r20")
+ONSET = False
 
 
 def qois(be, rho, E0, tag, de=0.01, kick=None):
-    rows = be.run_path(rho, "compression", emax=0.2, de=de, crit="1", tag=tag, branch=True, branch_kick=kick)
+    rows = be.run_path(rho, "compression", emax=0.2, de=de, crit="1", tag=tag, branch=not ONSET,
+                       truncate_unstable=ONSET, branch_kick=None if ONSET else kick)
     return Q.path_qois(rows, E0, at=(0.1, 0.2))
 
 
@@ -41,11 +47,15 @@ def main(a):
         res = R["results"][0]
         t_id = int(res["target"]["id"])
         c_star = np.asarray(res["target"]["c"], np.float64)
-        qb = json.loads((run / "qoi_compression_branch.json").read_text())["cells"]
+        if ONSET:
+            qb = {f"t/cell{x['seed']}": x["qoi"] for x in res["samples"]}
+        else:
+            qb = json.loads((run / "qoi_compression_branch.json").read_text())["cells"]
         cells = np.load(next(run.glob("target*_cells.npz")), allow_pickle=False)
-        seeds = sorted(int(k.split("/cell")[1]) for k, q in qb.items() if np.isfinite(q.get("r20", np.nan)))
+        seeds = sorted(int(k.split("/cell")[1]) for k, q in qb.items()
+                       if q.get(KEYS[-1]) is not None and np.isfinite(q.get(KEYS[-1], np.nan)))
         base = seeds[: a.n_base]
-        be = FS3D(workdir=run / "fs3d_floor", gpu=a.gpu)
+        be = FS3D(workdir=run / ("fs3d_floor_onset" if ONSET else "fs3d_floor"), gpu=a.gpu)
         fib = Fb.Fiber(R["args"]["n_o"], v=R["args"]["v"], r=R["args"]["r"])
         floor = {k: dict(a=[], b=[[], []], c=[]) for k in KEYS}
         log = dict(target=t_id, base=base, runs=[])
@@ -60,13 +70,13 @@ def main(a):
             if E0 is None:
                 C, _ = be.moduli(rho, tag=f"mod{s}")
                 E0 = Q.young_x(C)
-            for tag, kw in (("kick", dict(kick=0.03)), ("half", dict(de=0.005))):
+            for tag, kw in ((("half", dict(de=0.005)),) if ONSET else (("kick", dict(kick=0.03)), ("half", dict(de=0.005)))):
                 q2 = qois(be, rho, E0, f"{tag}{s}", **kw)
                 for k in KEYS:
                     floor[k]["a"].append((q0.get(k, np.nan), q2.get(k, np.nan)))
                 log["runs"].append(dict(seed=s, kind=tag, **{k: q2.get(k, np.nan) for k in KEYS}, reached=q2["reached"]))
                 print(run.name, s, tag, {k: round(q2.get(k, np.nan), 4) for k in KEYS}, flush=True)
-            if t_id % 2 == 0:
+            if t_id % 2 == 0 or a.fine:
                 fine = resample_binary(fib, cells[f"phi{s}"], 2.0).astype(np.float64)
                 Cf, _ = be.moduli(fine, tag=f"modf{s}")
                 q3 = qois(be, fine, Q.young_x(Cf), f"fine{s}")
@@ -95,7 +105,7 @@ def main(a):
             return dict(a=fa, b=fb, c=fc)
 
         log["floor"] = {k: comp(k) for k in KEYS}
-        (run / "floor_branch.json").write_text(json.dumps(log, default=float, indent=1))
+        (run / ("floor_onset.json" if ONSET else "floor_branch.json")).write_text(json.dumps(log, default=float, indent=1))
         print(run.name, json.dumps(log["floor"], default=float), flush=True)
 
 
@@ -104,4 +114,9 @@ if __name__ == "__main__":
     ap.add_argument("runs", nargs="+")
     ap.add_argument("--gpu", type=int, default=None)
     ap.add_argument("--n-base", type=int, default=4)
-    main(ap.parse_args())
+    ap.add_argument("--onset", action="store_true", help="floor of the onset eps_cell (fundamental branch)")
+    ap.add_argument("--fine", action="store_true", help="run the 2x check on odd targets too")
+    a = ap.parse_args()
+    if a.onset:
+        ONSET, KEYS = True, ("eps_cell",)
+    main(a)

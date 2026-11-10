@@ -21,6 +21,7 @@ class TestWidths(unittest.TestCase):
         # a common shift does not count, a relative change does
         self.assertAlmostEqual(W.difference_floor([1, 2, 3], [1.5, 2.5, 3.5]), 0.0)
         self.assertAlmostEqual(W.difference_floor([1, 2, 3], [1, 2.2, 3]), 0.2)
+        self.assertTrue(np.isnan(W.difference_floor([1, np.nan], [1, 2])))
         self.assertAlmostEqual(W.log_floor([0.1], [[0.11]]), np.log(1.1))
 
     def test_h1_decision(self):
