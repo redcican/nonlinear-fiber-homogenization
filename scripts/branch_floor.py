@@ -28,7 +28,7 @@ from nlfiber import fiber as Fb, project as P, qoi as Q, widths as W  # noqa: E4
 from nlfiber.backend_fs3d import FS3D  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from width_pilot import resample_binary  # noqa: E402
+from width_pilot import resample_binary, make_metric  # noqa: E402
 
 KEYS = ("nu20", "r20")
 ONSET = False
@@ -87,7 +87,8 @@ def main(a):
                 print(run.name, s, "2x", {k: round(q3.get(k, np.nan), 4) for k in KEYS}, flush=True)
         for s in base[:2]:
             q0 = ref(s)
-            _, pol = P.polish_binary(fib, jnp.asarray(cells[f"phi{s}"]), c_star, 16.0, up=1, steps=8, tol_bin=5e-4)
+            _, pol = P.polish_binary(fib, jnp.asarray(cells[f"phi{s}"]), c_star, 16.0, up=1, steps=8, tol_bin=5e-4,
+                                     metric=make_metric(R["args"], R["args"]["n_o"]))
             d2 = np.asarray(pol["binary"]["cell"], np.float64)
             C2, _ = be.moduli(d2, tag=f"modc{s}")
             q4 = qois(be, d2, Q.young_x(C2), f"slack{s}")

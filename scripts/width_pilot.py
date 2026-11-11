@@ -57,6 +57,15 @@ def evaluate(cell_bin, emax, de, kick_seed=0, stability=True, verbose=False):
     return q, rows
 
 
+def make_metric(args, n_o):
+    """Projection metric of a run: Euclidean, or the stationary DCT metric with a power-law spectrum
+    (alpha > 0 favours smooth, low-wavenumber changes of the pre-density)."""
+    if args.get("metric", "euclid") == "powerlaw":
+        from nlfiber import metric as M
+        return M.DCTMetric(M.power_law_spectrum(n_o, alpha=args.get("alpha", 2.0)))
+    return P.euclid
+
+
 def resample_binary(fib, phi, factor):
     """Binary cell of the same design at `factor` times the resolution (threshold at the same volume)."""
     u = np.asarray(fib.dm.smooth(jnp.asarray(phi)))
@@ -82,6 +91,7 @@ def run(args):
     emax, de = args["emax"], args["de"]
     fib = Fb.Fiber(n_o, v=v, r=r)
     betas = (2, 4, 8, 16)
+    metric = make_metric(args, n_o)
     BACKEND["path"] = args.get("path", "compression")
     if args.get("backend") == "fs3d":
         from nlfiber.backend_fs3d import FS3D
@@ -128,7 +138,7 @@ def run(args):
             t0 = time.time()
             phi0 = Fb.random_start(n_o, seed=seed, kmax=2)
             try:
-                phi, info = P.project_to_fiber(fib, phi0, c_star, betas=betas, up=1, polish_steps=6)
+                phi, info = P.project_to_fiber(fib, phi0, c_star, betas=betas, metric=metric, up=1, polish_steps=6)
             except Exception as e:  # noqa: BLE001
                 say(f"  t{t_id} s{seed}: projection failed: {e}")
                 continue
@@ -192,7 +202,8 @@ def run(args):
             # (c) tighter stiffness slack on two cells
             for a in base[:2]:
                 if args["eval"] == "binary":
-                    phi2, pol = P.polish_binary(fib, jnp.asarray(a["phi"]), c_star, betas[-1], up=1, steps=8, tol_bin=5e-4)
+                    phi2, pol = P.polish_binary(fib, jnp.asarray(a["phi"]), c_star, betas[-1], up=1, metric=metric, steps=8,
+                                                 tol_bin=5e-4)
                     d2, slack = pol["binary"]["cell"], pol["err_bin"]
                 else:
                     phi2, pinfo = P.gn_project(fib, jnp.asarray(a["phi"]), c_star, betas[-1], tol=1e-6)
@@ -253,9 +264,11 @@ if __name__ == "__main__":
     ap.add_argument("--require-valid", action="store_true", help="accept only cells that pass every validity rule")
     ap.add_argument("--vol-tol", type=float, default=None, help="accept only binary cells with |vol - v| <= tol")
     ap.add_argument("--fs3d-gpu", type=int, default=None, help="card for the fs3d runs (default: the JAX card)")
+    ap.add_argument("--metric", choices=("euclid", "powerlaw"), default="euclid", help="projection metric")
+    ap.add_argument("--alpha", type=float, default=2.0, help="power-law exponent of the DCT metric")
     ap.add_argument("--out", default="runs/pilot32")
     a = ap.parse_args()
     run(dict(n_o=a.n_o, v=a.v, r=a.r, targets=a.targets, starts=a.starts, accept=a.accept, n_min=a.n_min,
              emax=a.emax, de=a.de, out=a.out, eval=a.eval, backend=a.backend, target_offset=a.target_offset, path=a.path,
              target_file=a.target_file, require_valid=a.require_valid, vol_tol=a.vol_tol,
-             fs3d_gpu=a.fs3d_gpu))
+             fs3d_gpu=a.fs3d_gpu, metric=a.metric, alpha=a.alpha))
