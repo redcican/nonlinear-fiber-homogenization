@@ -52,6 +52,20 @@ class TestDensity(unittest.TestCase):
         fd = (f(phi + h * d) - f(phi - h * d)) / (2 * h)
         self.assertAlmostEqual(float(jnp.vdot(g, d)), float(fd), delta=1e-7 * abs(float(fd)) + 1e-10)
 
+    def test_binary_volume_after_floating_removal(self):
+        # smooth fields at a large filter radius leave floating pieces at the threshold; the kept solid must
+        # grow back to v instead of re-adding the removed pieces
+        fib = Fb.Fiber(8, v=0.25, r=2.5)
+        kept = 0
+        for seed in range(8):
+            b = fib.dm.binary(Fb.random_start(8, seed=seed, kmax=3), up=1)
+            if not b.any():  # no spanning solid at the threshold: nothing to keep
+                continue
+            kept += 1
+            self.assertLessEqual(abs(b.mean() - 0.25) * b.size, 48)  # to one symmetry orbit (48 voxels)
+            self.assertEqual(T.validity(b)["floating"], 0)
+        self.assertGreaterEqual(kept, 2)
+
     def test_binary_volume_and_symmetry(self):
         dm = D.DensityMap(6, r=1.5, v=0.3)
         b = dm.binary(np.asarray(schwarz_p_phi(6)), up=2)

@@ -104,18 +104,30 @@ class DensityMap:
             u = np.asarray(S.exact_symmetrize(jnp.asarray(upsample_periodic(u, up))))
         b = u > np.quantile(u, 1.0 - v)
         if remove_floating:
-            # removing floating pieces lowers the volume: lower the threshold until the kept volume is v again
-            target = v
-            for _ in range(6):
+            # removing floating pieces lowers the volume. Grow the kept solid back to v through the void voxels
+            # that touch it (highest u first, whole symmetry orbits at a time); re-adding the void voxels of
+            # highest u anywhere would re-create the removed pieces.
+            for _ in range(500):
                 b = rf(b)
-                missing = target - b.mean()
+                missing = v - b.mean()
                 if missing * b.size < 1 or not b.any():
                     break
-                cand = np.sort(u[~b])[::-1]
-                k = int(round(missing * b.size))
-                b = b | (u >= cand[min(k, cand.size) - 1])
+                front = _dilate_periodic(b) & ~b
+                cand = np.sort(u[front])[::-1]
+                if cand.size == 0:
+                    break
+                k = min(max(int(round(missing * b.size)), 1), cand.size)
+                b = b | (front & (u >= cand[k - 1]))
             b = rf(b)
         return b
+
+
+def _dilate_periodic(b):
+    """Periodic dilation by the 26-neighbourhood (3x3x3 cube, or 3x3 in 2D)."""
+    out = b.copy()
+    for ax in range(b.ndim):
+        out = out | np.roll(out, 1, axis=ax) | np.roll(out, -1, axis=ax)
+    return out
 
 
 def upsample_periodic(c, f):

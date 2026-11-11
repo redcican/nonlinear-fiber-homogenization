@@ -145,6 +145,8 @@ def run(args):
                 design = b
             if args.get("require_valid"):
                 ok = ok and val["valid"]  # all validity rules of plan Sec. 5.4, minimum feature size included
+            if args.get("vol_tol") is not None:
+                ok = ok and abs(float(np.mean(b)) - v) <= args["vol_tol"]  # the binary cell is on the fiber's volume
             say(f"  t{t_id} s{seed}: grey {info['err_grey']:.1e} bin {info['err_bin']:.2e} "
                 f"vol {info['binary']['vol']:.3f} valid {val['valid']} {'ACCEPT' if ok else 'reject'} "
                 f"({info['solves']} solves, {time.time() - t0:.0f}s)")
@@ -249,8 +251,9 @@ if __name__ == "__main__":
                     help="finite-strain evaluator: the JAX FP64 solver or fs3d (NLFIBER_FS3D)")
     ap.add_argument("--target-file", nargs="*", default=None, help="results.json files whose targets are reused")
     ap.add_argument("--require-valid", action="store_true", help="accept only cells that pass every validity rule")
+    ap.add_argument("--vol-tol", type=float, default=None, help="accept only binary cells with |vol - v| <= tol")
     ap.add_argument("--out", default="runs/pilot32")
     a = ap.parse_args()
     run(dict(n_o=a.n_o, v=a.v, r=a.r, targets=a.targets, starts=a.starts, accept=a.accept, n_min=a.n_min,
              emax=a.emax, de=a.de, out=a.out, eval=a.eval, backend=a.backend, target_offset=a.target_offset, path=a.path,
-             target_file=a.target_file, require_valid=a.require_valid))
+             target_file=a.target_file, require_valid=a.require_valid, vol_tol=a.vol_tol))
