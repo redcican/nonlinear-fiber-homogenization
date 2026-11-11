@@ -252,4 +252,5 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="runs/pilot32")
     a = ap.parse_args()
     run(dict(n_o=a.n_o, v=a.v, r=a.r, targets=a.targets, starts=a.starts, accept=a.accept, n_min=a.n_min,
-             emax=a.emax, de=a.de, out=a.out, eval=a.eval, backend=a.backend, target_offset=a.target_offset, path=a.path))
+             emax=a.emax, de=a.de, out=a.out, eval=a.eval, backend=a.backend, target_offset=a.target_offset, path=a.path,
+             target_file=a.target_file, require_valid=a.require_valid))
