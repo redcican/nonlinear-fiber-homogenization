@@ -148,7 +148,7 @@ def run(args):
             if args.get("vol_tol") is not None:
                 ok = ok and abs(float(np.mean(b)) - v) <= args["vol_tol"]  # the binary cell is on the fiber's volume
             say(f"  t{t_id} s{seed}: grey {info['err_grey']:.1e} bin {info['err_bin']:.2e} "
-                f"vol {info['binary']['vol']:.3f} valid {val['valid']} {'ACCEPT' if ok else 'reject'} "
+                f"vol {info['binary']['vol']:.3f} valid {val['valid']} opening {val['opening_change']:.4f} {'ACCEPT' if ok else 'reject'} "
                 f"({info['solves']} solves, {time.time() - t0:.0f}s)")
             if not ok:
                 continue
