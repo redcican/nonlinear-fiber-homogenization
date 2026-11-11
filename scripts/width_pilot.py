@@ -97,6 +97,12 @@ def run(args):
 
     # targets: the stiffness of reference designs (random starts whose binary cell spans the period)
     targets, seed_t = [], 1000 + 100 * args.get("target_offset", 0)
+    if args.get("target_file"):
+        # reuse the targets of earlier runs (e.g. G1), so that a re-run with another filter radius keeps c*
+        for f in args["target_file"]:
+            tg = json.loads(Path(f).read_text())["results"][0]["target"]
+            targets.append(tg)
+            say(f"target {tg['id']}: c = {np.asarray(tg['c'])} (from {f})")
     while len(targets) < args["targets"]:
         phi_t = Fb.random_start(n_o, seed=seed_t, kmax=2)
         seed_t += 1
@@ -137,6 +143,8 @@ def run(args):
                 err = info["err_bin"]
                 ok = err <= 0.005 and connected
                 design = b
+            if args.get("require_valid"):
+                ok = ok and val["valid"]  # all validity rules of plan Sec. 5.4, minimum feature size included
             say(f"  t{t_id} s{seed}: grey {info['err_grey']:.1e} bin {info['err_bin']:.2e} "
                 f"vol {info['binary']['vol']:.3f} valid {val['valid']} {'ACCEPT' if ok else 'reject'} "
                 f"({info['solves']} solves, {time.time() - t0:.0f}s)")
@@ -239,6 +247,8 @@ if __name__ == "__main__":
     ap.add_argument("--path", choices=("compression", "tension"), default="compression")
     ap.add_argument("--backend", choices=("jax", "fs3d"), default="jax",
                     help="finite-strain evaluator: the JAX FP64 solver or fs3d (NLFIBER_FS3D)")
+    ap.add_argument("--target-file", nargs="*", default=None, help="results.json files whose targets are reused")
+    ap.add_argument("--require-valid", action="store_true", help="accept only cells that pass every validity rule")
     ap.add_argument("--out", default="runs/pilot32")
     a = ap.parse_args()
     run(dict(n_o=a.n_o, v=a.v, r=a.r, targets=a.targets, starts=a.starts, accept=a.accept, n_min=a.n_min,
