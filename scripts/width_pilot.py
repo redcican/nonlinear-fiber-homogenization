@@ -85,7 +85,7 @@ def run(args):
     BACKEND["path"] = args.get("path", "compression")
     if args.get("backend") == "fs3d":
         from nlfiber.backend_fs3d import FS3D
-        BACKEND["fs3d"] = FS3D(workdir=out / "fs3d")
+        BACKEND["fs3d"] = FS3D(workdir=out / "fs3d", gpu=args.get("fs3d_gpu"))
         BACKEND["name"] = "fs3d"
     log = open(out / "log.txt", "a")
 
@@ -252,8 +252,10 @@ if __name__ == "__main__":
     ap.add_argument("--target-file", nargs="*", default=None, help="results.json files whose targets are reused")
     ap.add_argument("--require-valid", action="store_true", help="accept only cells that pass every validity rule")
     ap.add_argument("--vol-tol", type=float, default=None, help="accept only binary cells with |vol - v| <= tol")
+    ap.add_argument("--fs3d-gpu", type=int, default=None, help="card for the fs3d runs (default: the JAX card)")
     ap.add_argument("--out", default="runs/pilot32")
     a = ap.parse_args()
     run(dict(n_o=a.n_o, v=a.v, r=a.r, targets=a.targets, starts=a.starts, accept=a.accept, n_min=a.n_min,
              emax=a.emax, de=a.de, out=a.out, eval=a.eval, backend=a.backend, target_offset=a.target_offset, path=a.path,
-             target_file=a.target_file, require_valid=a.require_valid, vol_tol=a.vol_tol))
+             target_file=a.target_file, require_valid=a.require_valid, vol_tol=a.vol_tol,
+             fs3d_gpu=a.fs3d_gpu))
