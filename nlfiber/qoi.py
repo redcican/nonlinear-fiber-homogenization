@@ -133,6 +133,32 @@ def nu0(C):
     return -S[1, 0] / S[0, 0]
 
 
+def toec_uniaxial(C, T, eps, axis=0, tol=1e-13, maxit=50):
+    """Third-order prediction of a uniaxial-stress path from the TOECs (Prop. 4 of the plan).
+
+    W = 1/2 C E E + 1/6 T E E E in the Lagrangian strain (Voigt, engineering shear), so S = C E + 1/2 T E E.
+    Along `axis` the stretch is 1 + eps (E_aa = eps + eps^2/2); the two lateral normal stresses vanish and the
+    shears stay zero. Returns dict(P (first Piola-Kirchhoff along axis), nu (mean lateral ratio), F (lateral
+    stretches)). C (6x6) and T (6x6x6) are in the solver's units."""
+    C, T = np.asarray(C, float), np.asarray(T, float)
+    lat = [i for i in range(3) if i != axis]
+    E = np.zeros(6)
+    E[axis] = eps + 0.5 * eps**2
+    # start from the linear lateral strains
+    S_ = np.linalg.inv(C)
+    E[lat] = -S_[lat, axis] / S_[axis, axis] * E[axis]
+    for _ in range(maxit):
+        S = C @ E + 0.5 * np.einsum("ijk,j,k->i", T, E, E)
+        r = S[lat]
+        if np.abs(r).max() <= tol * max(abs(S[axis]), 1e-300):
+            break
+        J = C[np.ix_(lat, lat)] + np.einsum("ijk,k->ij", T, E)[np.ix_(lat, lat)]
+        E[lat] -= np.linalg.solve(J, r)
+    S = C @ E + 0.5 * np.einsum("ijk,j,k->i", T, E, E)
+    Flat = np.sqrt(1.0 + 2.0 * E[lat])
+    return dict(P=float((1.0 + eps) * S[axis]), nu=float(np.mean(-(Flat - 1.0) / eps)), F=Flat)
+
+
 def path_qois(rows, E0, axis=0, at=(0.1, 0.2)):
     """QoIs of a tension or compression path. Values at strains not reached are nan."""
     rows = [r for r in rows if r["converged"]]

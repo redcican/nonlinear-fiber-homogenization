@@ -66,6 +66,31 @@ class TestSmallStrainLimit(unittest.TestCase):
         self.assertAlmostEqual(g3, pred, delta=2e-3 * abs(pred))
 
 
+class TestToecPrediction(unittest.TestCase):
+    def test_uniaxial_prediction_matches_mixed_solve(self):
+        """The TOEC prediction of a uniaxial-stress path agrees with the finite-strain solve to O(eps^3)."""
+        rho = grey_cell(3, beta=3.0)
+        cell = Me.Cell(rho)
+        _, chi, _ = L.LinearHomogenization(rho.shape).C_full(rho)
+        C, T = Me.toec(cell, chi)
+        C, T = np.asarray(C), np.asarray(T)
+        errs = {}
+        for e in (0.02, 0.01, -0.01):
+            m = Me.Mixed(cell, Q.LATERAL[0])
+            w, F, log = m.solve(np.diag([1 + e, 1.0, 1.0]), rtol=1e-12, cg_tol=1e-10)
+            self.assertTrue(log["converged"])
+            P = float(np.asarray(cell.mean_stress(w, F))[0, 0])
+            nu = -(float(np.mean([F[1, 1], F[2, 2]])) - 1) / e
+            pred, lin = Q.toec_uniaxial(C, T, e), Q.toec_uniaxial(C, 0 * T, e)
+            errs[e] = (abs(pred["P"] - P), abs(pred["nu"] - nu))
+            self.assertLess(abs(pred["P"] - P), 0.1 * abs(lin["P"] - P))  # T closes the C-only gap
+            self.assertLess(abs(pred["P"] - P), 10 * e**2 * abs(P))
+            self.assertLess(abs(pred["nu"] - nu), 2 * e**2)
+        # third order: halving the strain divides the stress error by ~8 and the nu error by ~4
+        self.assertGreater(errs[0.02][0] / errs[0.01][0], 6.0)
+        self.assertGreater(errs[0.02][1] / errs[0.01][1], 3.0)
+
+
 class TestAdjointAndStability(unittest.TestCase):
     def test_grad_rho_of_poisson_ratio(self):
         rho = grey_cell(3, beta=3.0)
